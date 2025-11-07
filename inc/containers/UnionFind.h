@@ -37,7 +37,9 @@ private:
     using SizeStorage = std::conditional_t<std::integral<value_type>,
             std::vector<size_type>, std::unordered_map<value_type, size_type>>;
 
-    mutable ParentStorage parents_;
+    // It is guaranteed that these data members will not be modified in const methods despite mutability.
+    // This is to avoid overloading get_ensured_ancestor() method for const and non-const.
+    mutable ParentStorage parents_; 
     mutable RankStorage ranks_;
     mutable std::conditional_t<TrackSize, SizeStorage, std::monostate> sizes_;
     size_type set_count_{0};
@@ -209,9 +211,9 @@ public:
         return get_ensured_ancestor<false>(x);
     }
 
-    template <bool Unsafe = true>
+    template <bool Unsafe = true> // UB for non-existent value in unsafe mode
     [[nodiscard]] const_reference find_existing(const value_type& x) noexcept(Unsafe) {
-        if constexpr (!Unsafe) { // throw upon non-existent value in safe method
+        if constexpr (!Unsafe) { // throw upon non-existent value in safe mode
             if (!contains(x))
                 throw std::runtime_error("UnionFind::find_existing() called on non-existent value");
         }
@@ -220,9 +222,9 @@ public:
 
     template <bool Unsafe = true>
     [[nodiscard]] const_reference find_const(const value_type& x) const noexcept(Unsafe) {
-        if constexpr (!Unsafe) { // throw upon non-existent value in safe method
+        if constexpr (!Unsafe) { // throw upon non-existent value in safe mode
             if (!contains(x))
-                throw std::runtime_error("UnionFind::find_existing() called on non-existent value");
+                throw std::runtime_error("UnionFind::find_const() called on non-existent value");
         }
         return get_ensured_ancestor<true>(x);
     }
@@ -231,8 +233,9 @@ public:
         unite_ensured_root(find(x), find(y));
     }
 
-    void unite_existing(const value_type& x, const value_type& y) {
-        unite_ensured_root(find_existing(x), find_existing(y));
+    template<bool Unsafe = true>
+    void unite_existing(const value_type& x, const value_type& y) noexcept(Unsafe) {
+        unite_ensured_root(find_existing<Unsafe>(x), find_existing<Unsafe>(y));
     }
 
     // Query Methods
@@ -314,4 +317,5 @@ public:
 };
 
 #endif //UNIONFIND_H
+
 
