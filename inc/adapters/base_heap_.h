@@ -23,13 +23,20 @@ concept HeapableContainer =
     { cont[i] } -> std::convertible_to<typename Container::value_type>;
     { cont.back() } -> std::convertible_to<typename Container::value_type>;
     { cont.front() } -> std::convertible_to<typename Container::value_type>;
-    { cont.size() } -> std::convertible_to<size_t>;
+    { cont.size() } -> std::convertible_to<std::size_t>;
+    { cont.capacity() } -> std::convertible_to<std::size_t>;
     { cont.empty() } -> std::convertible_to<bool>;
     { cont.emplace_back(val) };
     { cont.push_back(val) };
     { cont.pop_back() };
     { cont.clear() };
     };
+
+template<typename Container>
+concept Reservable = requires(Container cont)
+{
+    { cont.reserve() };
+};
 
 template<typename Compare, typename Container>
 concept HeapFunctor =
@@ -44,37 +51,36 @@ template <
     HeapableContainer Container = std::vector<T>,
     HeapFunctor<Container> Compare = std::less<T>>
 requires std::same_as<T, typename Container::value_type> && std::is_object_v<T>
-class BaseHeap {
-protected:
+class base_heap {
+public:
     using value_type = typename Container::value_type;
     using size_type = typename Container::size_type;
-
-    using const_reference = const value_type&;
+    using difference_type = std::ptrdiff_t;
+    using container_type = Container;
+    using value_compare = Compare;
+    using pointer = T*;
+    using const_pointer = const T*;
+    using reference = T&;
+    using const_reference = const T&;
+    using iterator = typename Container::const_iterator;
     using const_iterator = typename Container::const_iterator;
+    using reverse_iterator = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
-
+protected:
     Container data_{};
     [[no_unique_address]] Compare compare_{};
 
-    virtual void heapify_up(size_t) = 0;
-    virtual void heapify_down(size_t) = 0;
-
     //The following methods are called after checking all the concepts requirements
-    template <bool IsInitialize = true, std::ranges::input_range Rng>
-    void insert_range(Rng&& range) {
-        iterator_insert<IsInitialize>(std::ranges::begin(range), std::ranges::end(range));
+    template <std::ranges::input_range Rng>
+    constexpr void insert_range(Rng&& range) {
+        iterator_insert(std::ranges::begin(range), std::ranges::end(range));
     }
 
-    template <bool IsInitialize = true, std::input_iterator InputIt>
-    void iterator_insert(InputIt begin, InputIt end) {
-        if constexpr (std::random_access_iterator<InputIt> && requires(size_type i) { data_.reserve(i); }) {
+    template <std::input_iterator InputIt>
+    constexpr void iterator_insert(InputIt begin, InputIt end) {
+        if constexpr (std::random_access_iterator<InputIt> && Reservable<Container>) {
             const auto dist = static_cast<size_type>(end - begin);
-            if constexpr (IsInitialize) {
-                data_.reserve(dist);
-            }
-            else {
-                data_.reserve(dist + this->data_.size());
-            }
+            this->data_.reserve(dist + this->data_.size());
         }
         for (auto it = begin; it != end; ++it) {
             data_.emplace_back(std::forward<decltype(*it)>(*it));
@@ -83,40 +89,30 @@ protected:
 
     //Constructors
     //Default constructor
-    BaseHeap()
+    constexpr base_heap()
     noexcept(std::is_nothrow_default_constructible_v<Container> &&
         std::is_nothrow_default_constructible_v<Compare>)
     requires std::default_initializable<Container> && std::default_initializable<Compare>
         : data_{}, compare_{} {}
 
-    //List-initialization
-    BaseHeap(std::initializer_list<value_type> init)
-        : BaseHeap(init.begin(), init.end()) {
-    }
-
-    template <typename Cmp>
-    requires std::constructible_from<Compare, Cmp&&>
-    BaseHeap(std::initializer_list<value_type> init, Cmp&& cmp)
-        : BaseHeap(init.begin(), init.end(), cmp) {}
-
     //Constructor with Compare provided
     template <typename Cmp>
     requires std::constructible_from<Compare, Cmp&&> && std::default_initializable<Container>
     explicit(!std::convertible_to<Cmp&&, Compare>)
-    BaseHeap(Cmp&& cmp)
+    constexpr base_heap(Cmp&& cmp)
         noexcept(std::is_nothrow_constructible_v<Compare, Cmp&&> &&
                  std::is_nothrow_default_constructible_v<Container>)
         : data_{}, compare_{std::forward<Cmp>(cmp)} {
     }
 
-    /*We do not provide container constructors since they are covered by range constructors*/
+    /* We do not provide container constructors since they are covered by range constructors */
 
     //Iterator constructors
     template <std::input_iterator InputIt>
     requires std::default_initializable<Compare> &&
              std::constructible_from<Container, InputIt, InputIt> &&
              std::constructible_from<value_type, std::iter_reference_t<InputIt>>
-    explicit BaseHeap(InputIt begin, InputIt end)
+    explicit constexpr base_heap(InputIt begin, InputIt end)
         : data_(begin, end), compare_{} {
     }
 
@@ -124,7 +120,7 @@ protected:
     requires std::constructible_from<Compare, Cmp&&> &&
              std::constructible_from<Container, InputIt, InputIt> &&
                 std::constructible_from<value_type, std::iter_reference_t<InputIt>>
-    explicit BaseHeap(InputIt begin, InputIt end, Cmp&& cmp)
+    explicit constexpr base_heap(InputIt begin, InputIt end, Cmp&& cmp)
         : data_(begin, end), compare_{std::forward<Cmp>(cmp)} {
     }
 
@@ -133,7 +129,7 @@ protected:
             (!std::constructible_from<Container, InputIt, InputIt>) &&
              std::default_initializable<Container> &&
              std::constructible_from<value_type, std::iter_reference_t<InputIt>>
-    explicit BaseHeap(InputIt begin, InputIt end)
+    explicit constexpr base_heap(InputIt begin, InputIt end)
         : data_{}, compare_{} {
         iterator_insert(begin, end);
     }
@@ -143,7 +139,7 @@ protected:
             (!std::constructible_from<Container, InputIt, InputIt>) &&
              std::default_initializable<Container> &&
              std::constructible_from<value_type, std::iter_reference_t<InputIt>>
-    explicit BaseHeap(InputIt begin, InputIt end, Cmp&& cmp)
+    explicit constexpr base_heap(InputIt begin, InputIt end, Cmp&& cmp)
         : data_{}, compare_{std::forward<Cmp>(cmp)} {
         iterator_insert(begin, end);
     }
@@ -153,7 +149,7 @@ protected:
     requires std::default_initializable<Compare> &&
              std::constructible_from<Container, Rng&&> &&
              std::constructible_from<value_type, std::ranges::range_reference_t<Rng>>
-    explicit BaseHeap(Rng&& range)
+    explicit constexpr base_heap(Rng&& range)
         : data_(std::forward<Rng>(range)), compare_{} {
     }
 
@@ -161,15 +157,16 @@ protected:
     requires std::constructible_from<Compare, Cmp&&> &&
              std::constructible_from<Container, Rng&&> &&
              std::constructible_from<value_type, std::ranges::range_reference_t<Rng>>
-    explicit BaseHeap(Rng&& range, Cmp&& cmp)
-        : data_(std::forward<Rng>(range)), compare_{std::forward<Cmp>(cmp)} {}
+    explicit constexpr base_heap(Rng&& range, Cmp&& cmp)
+        : data_(std::forward<Rng>(range)), compare_{std::forward<Cmp>(cmp)} {
+    }
 
     template <std::ranges::input_range Rng>
     requires std::default_initializable<Compare> &&
             (!std::constructible_from<Container, Rng&&>) &&
              std::default_initializable<Container> &&
              std::constructible_from<value_type, std::ranges::range_reference_t<Rng>>
-    explicit BaseHeap(Rng&& range)
+    explicit constexpr base_heap(Rng&& range)
         : data_{}, compare_{} {
         insert_range(range);
     }
@@ -179,100 +176,72 @@ protected:
             (!std::constructible_from<Container, Rng&&>) &&
              std::default_initializable<Container> &&
              std::constructible_from<value_type, std::ranges::range_reference_t<Rng>>
-    explicit BaseHeap(Rng&& range, Cmp&& cmp)
+    explicit constexpr base_heap(Rng&& range, Cmp&& cmp)
         : data_{}, compare_{std::forward<Cmp>(cmp)} {
         insert_range(range);
     }
 
-    ~BaseHeap() = default;
+    constexpr ~base_heap() = default;
 
 public:
-
     /* The following methods are supposed to be universal among all derived classes. */
     //accessors
-    [[nodiscard]] const_reference top() const {
+    [[nodiscard]] constexpr const_reference top() const {
         if (empty()) throw std::out_of_range("Heap is empty");
         return data_.front();
     }
-    [[nodiscard]] const_reference unsafe_top() const noexcept { return data_[0]; }
-    [[nodiscard]] const_iterator begin() const noexcept { return data_.begin(); }
-    [[nodiscard]] const_iterator end() const noexcept { return data_.end(); }
+
+    [[nodiscard]] constexpr const_reference unchecked_top() const noexcept {
+        return data_[0];
+    }
+
+    [[nodiscard]] constexpr const_reference back() const noexcept(noexcept(data_.back())) {
+        return data_.back();
+    }
+
+    //Modifier
+    constexpr void pop_back() noexcept(noexcept(data_.back())) {
+        data_.pop_back();
+    }
+
+    // Iterators
+    // Note that iteration over a heap is in general meaningless
+    [[nodiscard]] constexpr const_iterator begin() const noexcept { return data_.begin(); }
+    [[nodiscard]] constexpr const_iterator end() const noexcept { return data_.end(); }
+    [[nodiscard]] constexpr const_reverse_iterator rbegin() const noexcept { return std::reverse_iterator{ begin() }; }
+    [[nodiscard]] constexpr const_reverse_iterator rend() const noexcept { return std::reverse_iterator{ end() }; }
+    [[nodiscard]] constexpr const_iterator cbegin() const noexcept { return data_.cbegin(); }
+    [[nodiscard]] constexpr const_iterator cend() const noexcept { return data_.cend(); }
+    [[nodiscard]] constexpr const_reverse_iterator crbegin() const noexcept { return std::reverse_iterator{ cend() }; }
+    [[nodiscard]] constexpr const_reverse_iterator crend() const noexcept { return std::reverse_iterator{ cbegin() }; }
 
     //Capacity
-    [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-    [[nodiscard]] size_type size() const noexcept { return data_.size(); }
+    [[nodiscard]] constexpr bool empty() const noexcept(noexcept(data_.empty())) {
+        return data_.empty();
+    }
 
-    void shrink_to_fit() noexcept(noexcept(data_.shrink_to_fit()))
+    [[nodiscard]] constexpr size_type size() const noexcept(noexcept(data_.size())) {
+        return data_.size();
+    }
+
+    [[nodiscard]] constexpr size_type max_size() const noexcept(noexcept(data_.max_size()))
+    requires requires { data_.max_size(); } {
+        return data_.max_size();
+    }
+
+    [[nodiscard]] constexpr size_type capacity() const noexcept(noexcept(data_.capacity()))
+    requires requires { data_.capacity(); } {
+        return data_.capacity();
+    }
+
+    constexpr void shrink_to_fit() noexcept(noexcept(data_.shrink_to_fit()))
     requires requires { data_.shrink_to_fit(); } {
         data_.shrink_to_fit();
     }
 
-    void reserve(size_type i) noexcept(noexcept(data_.reserve(i)))
+    constexpr void reserve(size_type i)
     requires requires(size_type n) { data_.reserve(n); } {
         data_.reserve(i);
-    }
-
-    /* Derived classes should implement their own versions of, or disable, the following methods */
-
-    //Modifiers
-    template <typename Input>
-    requires std::constructible_from<T, Input&&>
-    void push(Input&& value) {
-        data_.emplace_back(std::forward<Input>(value));
-        heapify_up(data_.size() - 1);
-    }
-
-    template <typename... Args>
-    requires std::constructible_from<T, Args&&...>
-    void emplace(Args&& ...args) {
-        data_.emplace_back(std::forward<Args>(args)...);
-        heapify_up(data_.size() - 1);
-    }
-
-    template <typename Input>
-    requires std::constructible_from<T, Input&&>
-    void replace_top(Input&& value) {
-        if (empty()) {
-            data_.push_back(std::forward<Input>(value));
-            return;
-        }
-        data_[0] = std::forward<Input>(value);
-        heapify_down(0);
-    }
-
-    template <typename Input>
-    requires std::constructible_from<T, Input&&>
-    void replace_top_unsafe(Input&& value) {
-        data_[0] = std::forward<Input>(value);
-        heapify_down(0);
-    }
-
-    void pop() {
-        if(empty()) {
-            throw std::out_of_range("Heap is empty");
-        }
-        data_[0] = std::move(data_.back());
-        data_.pop_back();
-        if(!empty()) {
-            heapify_down(0);
-        }
-    }
-
-    void unsafe_pop() noexcept(std::is_nothrow_move_assignable_v<value_type>) {
-        data_[0] = std::move(data_.back());
-        data_.pop_back();
-        if(!empty()) {
-            heapify_down(0);
-        }
-    }
-
-    void clear() noexcept(noexcept(data_.clear())) { data_.clear(); }
-
-    void swap(BaseHeap& rhs)
-    noexcept(std::is_nothrow_swappable_v<Container> && std::is_nothrow_swappable_v<Compare>) {
-        using std::swap;
-        swap(rhs.data_, data_);
-        swap(rhs.compare_, compare_);
     }
 
 };
