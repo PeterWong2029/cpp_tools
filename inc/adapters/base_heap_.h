@@ -8,13 +8,11 @@
 #include <vector>
 #include <concepts>
 #include <functional>
-
 #include <concepts>
 #include <ranges>
-#include <vector>
 
 template<typename Container>
-concept HeapableContainer =
+concept HeapableContainer = // Examples: std::vector, std::deque, std::inplace_vector
     std::ranges::range<Container> &&
     requires(Container cont, size_t i, typename Container::value_type val) {
     typename Container::value_type;
@@ -246,3 +244,4 @@ public:
 
 };
 #endif //BASE_HEAP__H
+
