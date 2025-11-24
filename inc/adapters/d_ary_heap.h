@@ -4,10 +4,7 @@
 
 #ifndef D_ARY_HEAP_H
 #define D_ARY_HEAP_H
-#include <iostream>
-
 #include "base_heap_.h"
-#include <ranges>
 
 template <
     typename T,
@@ -252,3 +249,4 @@ template <typename T, typename Container = std::vector<T>, typename Compare = st
 using ternary_heap = d_ary_heap<T, 3, Container, Compare>;
 
 #endif //D_ARY_HEAP_H
+
